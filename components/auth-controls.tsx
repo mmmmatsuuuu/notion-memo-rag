@@ -4,13 +4,9 @@ import { useState } from "react";
 
 type AuthControlsProps = {
   isSignedIn: boolean;
-  email?: string;
 };
 
-export default function AuthControls({
-  isSignedIn,
-  email
-}: AuthControlsProps) {
+export default function AuthControls({ isSignedIn }: AuthControlsProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleGoogleLogin = () => {
@@ -18,30 +14,21 @@ export default function AuthControls({
     window.location.href = "/auth/login";
   };
 
-  const handleLogout = async () => {
-    setIsLoading(true);
-    await fetch("/auth/logout", { method: "POST" });
-
-    window.location.reload();
-  };
+  if (isSignedIn) {
+    return null;
+  }
 
   return (
-    <section style={{ marginTop: 16, display: "grid", gap: 8 }}>
-      <p>
-        {isSignedIn
-          ? `ログイン中: ${email ?? "(email unknown)"}`
-          : "未ログイン"}
-      </p>
-
-      {isSignedIn ? (
-        <button type="button" onClick={handleLogout} disabled={isLoading}>
-          {isLoading ? "処理中..." : "ログアウト"}
-        </button>
-      ) : (
-        <button type="button" onClick={handleGoogleLogin} disabled={isLoading}>
-          {isLoading ? "リダイレクト中..." : "Googleでログイン"}
-        </button>
-      )}
+    <section className="mt-4 grid gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
+      <p className="text-sm text-[var(--ink-muted)]">未ログイン</p>
+      <button
+        type="button"
+        onClick={handleGoogleLogin}
+        disabled={isLoading}
+        className="w-fit rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {isLoading ? "リダイレクト中..." : "Googleでログイン"}
+      </button>
     </section>
   );
 }
