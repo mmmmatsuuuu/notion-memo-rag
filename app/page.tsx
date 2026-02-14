@@ -21,7 +21,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <h1>Notion Memo RAG</h1>
       <p>Google OAuth login test page</p>
       {authError ? (
-        <p style={{ color: "red" }}>ログインエラー: {authError}</p>
+        <p style={{ color: "red" }}>
+          {authError === "forbidden_email"
+            ? "ログインエラー: 許可されていないメールアドレスです。"
+            : `ログインエラー: ${authError}`}
+        </p>
       ) : null}
       <AuthControls isSignedIn={Boolean(user)} email={user?.email} />
     </main>

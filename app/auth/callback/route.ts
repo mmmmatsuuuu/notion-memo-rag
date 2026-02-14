@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "../../../lib/supabase/server";
+import { isAllowedEmail } from "../../../lib/auth/allowed-email";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
@@ -16,6 +17,21 @@ export async function GET(request: Request) {
     if (error) {
       console.error("OAuth code exchange failed", error.message);
       return NextResponse.redirect(new URL("/?auth_error=oauth_exchange_failed", baseUrl));
+    }
+
+    const {
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      console.error("OAuth user fetch failed", userError.message);
+      return NextResponse.redirect(new URL("/?auth_error=oauth_user_fetch_failed", baseUrl));
+    }
+
+    if (!isAllowedEmail(user?.email)) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL("/?auth_error=forbidden_email", baseUrl));
     }
   }
 
