@@ -122,14 +122,16 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
                     {memo.memoTitle ?? "（メモタイトルなし）"}
                   </span>
                 )}
-                <a
-                  href={memo.bookUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[var(--ink-muted)] underline"
-                >
-                  {memo.bookTitle ?? "（引用コンテンツなし）"}
-                </a>
+                {memo.bookUrl ? (
+                  <a
+                    href={memo.bookUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[var(--ink-muted)] underline"
+                  >
+                    {memo.bookTitle ?? "（引用コンテンツなし）"}
+                  </a>
+                ) : <span className="text-[var(--ink-muted)]">{memo.bookTitle ?? "（引用コンテンツなし）"}</span>}
                 <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs">
                   {memo.note}
                 </span>
