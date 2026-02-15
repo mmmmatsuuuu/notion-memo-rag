@@ -46,11 +46,12 @@ Notionに蓄積した読書メモを「意味」で検索し、
 
 ### インデックス（同期時）
 
-1. NotionメモDBからページ取得
-2. ページ本文（ブロック）を再帰的に取得
-3. テキストを改行結合して整形
-4. embedding生成
-5. Supabaseへ保存
+1. Notion Data Sourceから `id` と `last_edited_time` を取得（`limit=50` または `all`）
+2. Supabaseの `id` と `last_edited_time` を候補IDのみ取得
+3. 差分（未登録または更新済み）だけを同期対象に抽出
+4. 対象ページ本文（ブロック）を再帰取得し、テキスト整形
+5. embedding生成
+6. Supabaseへupsert
 
 ※ 1メモ = 1ベクトル（MVPでは分割しない）
 
