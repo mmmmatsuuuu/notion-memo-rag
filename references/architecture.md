@@ -60,12 +60,13 @@ MVPでは分割（chunking）は行わない。
 
 ### 4.1 同期（インデックス作成）
 
-1. NotionメモDBからページ取得
-2. ブロックを再帰取得
-3. テキストを改行結合
-4. content_hash生成
-5. embedding生成
-6. Supabaseへ保存
+1. Notion Data Sourceから `id` と `last_edited_time` を取得（`limit=50` または `all`）
+2. Supabaseから候補IDの `id` と `last_edited_time` を取得
+3. 未登録または更新済みページのみ差分抽出
+4. 差分対象のブロックを再帰取得
+5. テキストを改行結合
+6. embedding生成
+7. Supabaseへupsert
 
 保存単位：
 1ページ = 1レコード

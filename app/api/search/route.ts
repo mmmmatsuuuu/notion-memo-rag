@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { createEmbedding } from "../../../lib/openai/embeddings";
 import { isAllowedEmail } from "../../../lib/auth/allowed-email";
+import { createAdminClient } from "../../../lib/supabase/admin";
 import { createClient } from "../../../lib/supabase/server";
 
 type SearchRequestBody = {
@@ -7,118 +9,68 @@ type SearchRequestBody = {
   topK?: unknown;
 };
 
-type MockSearchResult = {
-  id: string;
-  memoUrl: string;
-  bookId: string;
-  bookTitle: string;
-  bookUrl: string;
-  tags: string[];
-  note: string;
-  preview: string;
-  scholarQueries: string[];
+type MatchMemoRow = {
+  id?: string;
+  memo_url?: string;
+  book_id?: string;
+  book_title?: string;
+  book_url?: string;
+  tags?: string[] | string | null;
+  note?: string | null;
+  content_text?: string | null;
 };
 
 const DEFAULT_TOP_K = 6;
 
-const mockSearchResults: MockSearchResult[] = [
-  {
-    id: "mock-memo-1",
-    memoUrl: "https://www.notion.so/mock-memo-1",
-    bookId: "book-001",
-    bookTitle: "思考の整理学",
-    bookUrl: "https://example.com/books/001",
-    tags: ["思考法", "メタ認知"],
-    note: "p.44",
-    preview:
-      "行き詰まりは思考不足ではなく、寝かせる時間の不足で起こる。問いを寝かせると再結合が起きる。",
-    scholarQueries: [
-      "incubation effect creative problem solving",
-      "memory consolidation and insight",
-      "reflection and cognition"
-    ]
-  },
-  {
-    id: "mock-memo-2",
-    memoUrl: "https://www.notion.so/mock-memo-2",
-    bookId: "book-002",
-    bookTitle: "知的生産の技術",
-    bookUrl: "https://example.com/books/002",
-    tags: ["読書術", "メモ"],
-    note: "p.118",
-    preview:
-      "要約は削る作業ではなく判断軸を抽出する作業。記録で終わらせず次の行動単位に変換する。",
-    scholarQueries: [
-      "active reading note-taking strategy",
-      "decision making and summarization",
-      "external cognition"
-    ]
-  },
-  {
-    id: "mock-memo-3",
-    memoUrl: "https://www.notion.so/mock-memo-3",
-    bookId: "book-003",
-    bookTitle: "Lean Analytics",
-    bookUrl: "https://example.com/books/003",
-    tags: ["MVP", "指標"],
-    note: "p.76",
-    preview:
-      "初期プロダクトは指標を絞るほど学習が速い。網羅性よりも次の改善に直結する信号を選ぶ。",
-    scholarQueries: [
-      "one metric that matters startup",
-      "lean experimentation product teams",
-      "north star metric"
-    ]
-  },
-  {
-    id: "mock-memo-4",
-    memoUrl: "https://www.notion.so/mock-memo-4",
-    bookId: "book-004",
-    bookTitle: "実践デザイン思考",
-    bookUrl: "https://example.com/books/004",
-    tags: ["UX", "問い"],
-    note: "p.201",
-    preview:
-      "インタビューは質問内容より順序が重要。具体行動から入り、抽象化は最後に回す。",
-    scholarQueries: [
-      "contextual inquiry user research",
-      "question order effects",
-      "retrospective bias interview"
-    ]
-  },
-  {
-    id: "mock-memo-5",
-    memoUrl: "https://www.notion.so/mock-memo-5",
-    bookId: "book-005",
-    bookTitle: "構造化文章術",
-    bookUrl: "https://example.com/books/005",
-    tags: ["文章", "論理展開"],
-    note: "p.52",
-    preview:
-      "伝わる文章は語彙ではなく接続の設計で決まる。主張・根拠・具体例の最小ループを守る。",
-    scholarQueries: [
-      "argument structure writing clarity",
-      "cognitive load technical writing",
-      "discourse coherence"
-    ]
-  },
-  {
-    id: "mock-memo-6",
-    memoUrl: "https://www.notion.so/mock-memo-6",
-    bookId: "book-006",
-    bookTitle: "The Effective Engineer",
-    bookUrl: "https://example.com/books/006",
-    tags: ["開発生産性", "優先順位"],
-    note: "p.139",
-    preview:
-      "曖昧タスクは先送りされる。完了条件と依存を明確化するとチームの実行速度が上がる。",
-    scholarQueries: [
-      "task clarity software productivity",
-      "goal specificity execution speed",
-      "coordination cost engineering teams"
-    ]
+function normalizeTags(tags: MatchMemoRow["tags"]): string[] {
+  if (Array.isArray(tags)) {
+    return tags.filter((tag): tag is string => typeof tag === "string" && tag.length > 0);
   }
-];
+
+  if (typeof tags === "string" && tags.length > 0) {
+    return tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function buildScholarQueries(row: MatchMemoRow): string[] {
+  const title = row.book_title ?? "";
+  const note = row.note ?? "";
+  const content = (row.content_text ?? "").slice(0, 120).replace(/\s+/g, " ").trim();
+
+  const candidates = [
+    title,
+    [title, note].filter(Boolean).join(" ").trim(),
+    [title, content].filter(Boolean).join(" ").trim()
+  ].filter(Boolean);
+
+  return [...new Set(candidates)].slice(0, 3);
+}
+
+async function runMatchMemos(embedding: number[], topK: number): Promise<MatchMemoRow[]> {
+  const supabase = createAdminClient();
+
+  const rpcParamsList: Array<Record<string, unknown>> = [
+    { query_embedding: embedding, match_count: topK },
+    { query_embedding: embedding, top_k: topK },
+    { p_query_embedding: embedding, p_match_count: topK },
+    { embedding, match_count: topK }
+  ];
+
+  for (const params of rpcParamsList) {
+    const { data, error } = await supabase.rpc("match_memos", params);
+
+    if (!error) {
+      return (data ?? []) as MatchMemoRow[];
+    }
+  }
+
+  throw new Error("match_memos_rpc_failed");
+}
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -147,16 +99,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "contextText_required" }, { status: 400 });
   }
 
-  const requestedTopK = typeof body.topK === "number" ? body.topK : undefined;
-  const results = mockSearchResults.slice(0, DEFAULT_TOP_K);
+  const contextText = body.contextText.trim();
 
-  return NextResponse.json({
-    ok: true,
-    mode: "mock",
-    topK: DEFAULT_TOP_K,
-    requestedTopK,
-    resultCount: results.length,
-    contextTextLength: body.contextText.trim().length,
-    results
-  });
+  try {
+    const embedding = await createEmbedding(contextText);
+    const rows = await runMatchMemos(embedding, DEFAULT_TOP_K);
+
+    const results = rows.slice(0, DEFAULT_TOP_K).map((row, index) => ({
+      id: row.id ?? `memo-${index + 1}`,
+      memoUrl: row.memo_url ?? "",
+      bookId: row.book_id ?? row.id ?? `book-${index + 1}`,
+      bookTitle: row.book_title ?? "Untitled",
+      bookUrl: row.book_url ?? "",
+      tags: normalizeTags(row.tags),
+      note: row.note ?? "",
+      preview: (row.content_text ?? "").slice(0, 400),
+      scholarQueries: buildScholarQueries(row)
+    }));
+
+    return NextResponse.json({
+      ok: true,
+      mode: "live",
+      topK: DEFAULT_TOP_K,
+      requestedTopK: typeof body.topK === "number" ? body.topK : undefined,
+      resultCount: results.length,
+      contextTextLength: contextText.length,
+      results
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "search_failed";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
 }

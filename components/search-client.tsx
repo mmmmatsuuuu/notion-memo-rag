@@ -17,7 +17,7 @@ type SearchResultItem = {
 
 type SearchSuccessResponse = {
   ok: true;
-  mode: "mock";
+  mode: string;
   topK: number;
   requestedTopK?: number;
   resultCount: number;
@@ -80,7 +80,7 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
         <p className="mt-1 text-sm text-[var(--ink-muted)]">
           {response
             ? `mode=${response.mode} / topK=${response.topK} / count=${response.resultCount}`
-            : "文脈を入力して Search を押すと、モックAPIの結果を表示します。"}
+            : "文脈を入力して Search を押すと、検索結果を表示します。"}
         </p>
         {errorMessage ? (
           <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">

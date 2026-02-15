@@ -26,15 +26,15 @@
    - 一次資料導線は各カード内に表示
 2. `/admin` の最小画面を作成する。
    - `Sync latest 50`
-   - `Sync latest 200`
+   - `Sync all`
    - 同期結果（件数、失敗ID）
 
 ## 3. ベクトルDB更新機能（`/api/sync`）
 1. 認証確認と `ALLOWED_EMAIL` の検証を実装する。
 2. Notion ページを取得し、ブロックを再帰展開して flatten する。
-3. `content_hash` を計算し、embedding を生成する。
+3. embedding を生成する。
 4. Supabase `memos` へ upsert する（1メモ=1ベクトル）。
-5. `limit=50/200` の手動同期として完結させる。
+5. `limit=50/all` の手動同期として完結させる。
 
 ## 4. 検索機能（`/api/search`）
 1. 認証確認と `ALLOWED_EMAIL` の検証を実装する。
