@@ -5,10 +5,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type SearchResultItem = {
   id: string;
-  memoUrl: string;
+  memoUrl: string | null;
+  memoTitle: string | null;
   bookId: string;
-  bookTitle: string;
-  bookUrl: string;
+  bookTitle: string | null;
+  bookUrl: string | null;
   tags: string[];
   note: string;
   preview: string;
@@ -107,22 +108,30 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
               className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm"
             >
               <div className="flex flex-wrap items-center gap-3 text-sm">
-                <a
-                  href={memo.bookUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-[var(--accent)] underline decoration-1 underline-offset-3"
-                >
-                  {memo.bookTitle}
-                </a>
-                <a
-                  href={memo.memoUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[var(--ink-muted)] underline"
-                >
-                  Notionのメモへ
-                </a>
+                {memo.memoUrl ? (
+                  <a
+                    href={memo.memoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-[var(--accent)] underline decoration-1 underline-offset-3"
+                  >
+                    {memo.memoTitle ?? "（メモタイトルなし）"}
+                  </a>
+                ) : (
+                  <span className="font-semibold text-[var(--accent)]">
+                    {memo.memoTitle ?? "（メモタイトルなし）"}
+                  </span>
+                )}
+                {memo.bookUrl ? (
+                  <a
+                    href={memo.bookUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[var(--ink-muted)] underline"
+                  >
+                    {memo.bookTitle ?? "（引用コンテンツなし）"}
+                  </a>
+                ) : <span className="text-[var(--ink-muted)]">{memo.bookTitle ?? "（引用コンテンツなし）"}</span>}
                 <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs">
                   {memo.note}
                 </span>

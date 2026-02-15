@@ -3,13 +3,13 @@
 import { useState } from "react";
 
 type SyncPreviewItem = {
-  book_title: string;
+  memo_title: string;
   memo_url: string;
 };
 
 type SyncFailedItem = {
   id: string;
-  book_title: string;
+  memo_title: string;
   memo_url: string;
 };
 
@@ -302,8 +302,8 @@ export default function AdminSyncClient() {
             <p className="text-sm font-semibold">upsertPreview（逐次更新）</p>
             <ul className="mt-2 space-y-1 text-xs text-[var(--ink-muted)]">
               {livePreview.map((item) => (
-                <li key={`${item.book_title}-${item.memo_url}`}>
-                  {item.book_title} /{" "}
+                <li key={`${item.memo_title}-${item.memo_url}`}>
+                  {item.memo_title} /{" "}
                   <a href={item.memo_url} target="_blank" rel="noreferrer" className="underline">
                     {item.memo_url}
                   </a>
@@ -322,7 +322,7 @@ export default function AdminSyncClient() {
             <ul className="mt-2 space-y-1 text-xs text-red-700">
               {result.failedIds.map((item) => (
                 <li key={item.id}>
-                  {item.id} / {item.book_title} / {item.memo_url}
+                  {item.id} / {item.memo_title} / {item.memo_url}
                 </li>
               ))}
             </ul>

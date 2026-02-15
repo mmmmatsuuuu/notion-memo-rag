@@ -26,6 +26,7 @@ type NotionPropertyValue = {
   title?: NotionRichText[];
   rich_text?: NotionRichText[];
   url?: string | null;
+  relation?: Array<{ id?: string }>;
   multi_select?: Array<{ name?: string }>;
 };
 
@@ -36,6 +37,14 @@ export type NotionPage = {
   last_edited_time?: string;
   properties?: Record<string, NotionPropertyValue>;
 };
+
+type BookReference = {
+  id: string;
+  title: string;
+  url: string;
+};
+
+const bookReferenceCache = new Map<string, BookReference | null>();
 
 type NotionBlock = {
   id: string;
@@ -187,22 +196,25 @@ function extractRichText(value?: NotionRichText[]): string {
   return (value ?? []).map((item) => item.plain_text ?? "").join("").trim();
 }
 
-export function getPageMetadata(page: NotionPage) {
+export async function getPageMetadata(page: NotionPage) {
   const properties = page.properties ?? {};
-
-  const bookTitle =
+  const memoTitle =
     findByPropertyType(properties, "title") ??
-    findByKeyIncludes(properties, ["book", "title"]) ??
+    findByKeyIncludes(properties, ["memo", "title"]) ??
     "Untitled";
 
-  const memoUrl = page.url ?? "";
+  const relationBookPageId = getRelatedBookPageId(page);
+  let relationBook: BookReference | null = null;
 
-  const bookUrl =
-    findUrlByExactKey(properties, "マルチメディアコンテンツリスト") ??
-    findByExactKey(properties, "マルチメディアコンテンツリスト") ??
-    findUrlByKeyIncludes(properties, ["book", "url", "link"]) ??
-    findUrlByPropertyType(properties) ??
-    "";
+  if (relationBookPageId) {
+    relationBook = await fetchBookReference(relationBookPageId);
+  }
+
+  const bookId = relationBookPageId ?? null;
+  const bookTitle = relationBook?.title ?? null;
+  const bookUrl = relationBook?.url ?? null;
+
+  const memoUrl = page.url ?? "";
 
   const tags =
     findMultiSelectByExactKey(properties, "タグ") ??
@@ -214,11 +226,8 @@ export function getPageMetadata(page: NotionPage) {
     findByKeyIncludes(properties, ["note", "page", "memo"]) ??
     "";
 
-  const bookId =
-    findByKeyIncludes(properties, ["book_id", "bookid", "isbn", "id"]) ??
-    page.id;
-
   return {
+    memoTitle,
     bookTitle,
     memoUrl,
     bookUrl,
@@ -226,6 +235,16 @@ export function getPageMetadata(page: NotionPage) {
     note,
     bookId
   };
+}
+
+export function getRelatedBookPageId(page: NotionPage): string | null {
+  const properties = page.properties ?? {};
+  const relationByExactKey = findRelationByExactKey(properties, "マルチメディアコンテンツリスト");
+  if (relationByExactKey) {
+    return relationByExactKey;
+  }
+
+  return findRelationByKeyIncludes(properties, ["book", "multimedia", "content", "media"]);
 }
 
 function getPropertyByExactKey(
@@ -265,6 +284,66 @@ function findByExactKey(
   return null;
 }
 
+function findRelationByExactKey(
+  properties: Record<string, NotionPropertyValue>,
+  exactKey: string
+): string | null {
+  const value = getPropertyByExactKey(properties, exactKey);
+  if (value?.type !== "relation") {
+    return null;
+  }
+
+  return (value.relation ?? []).map((item) => item.id ?? "").find(Boolean) ?? null;
+}
+
+function findRelationByKeyIncludes(
+  properties: Record<string, NotionPropertyValue>,
+  candidates: string[]
+): string | null {
+  for (const [key, value] of Object.entries(properties)) {
+    const normalized = key.toLowerCase();
+    const match = candidates.some((candidate) => normalized.includes(candidate));
+    if (!match || value.type !== "relation") {
+      continue;
+    }
+
+    return (value.relation ?? []).map((item) => item.id ?? "").find(Boolean) ?? null;
+  }
+
+  return null;
+}
+
+async function fetchBookReference(bookPageId: string): Promise<BookReference | null> {
+  const cached = bookReferenceCache.get(bookPageId);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  try {
+    const page = await notionFetch<NotionPage>(`/pages/${bookPageId}`, {
+      method: "GET"
+    });
+
+    const properties = page.properties ?? {};
+    const title =
+      findByPropertyType(properties, "title") ??
+      findByKeyIncludes(properties, ["book", "title"]) ??
+      "Untitled";
+
+    const reference: BookReference = {
+      id: page.id,
+      title,
+      url: page.url ?? ""
+    };
+
+    bookReferenceCache.set(bookPageId, reference);
+    return reference;
+  } catch {
+    bookReferenceCache.set(bookPageId, null);
+    return null;
+  }
+}
+
 function findByPropertyType(properties: Record<string, NotionPropertyValue>, type: "title"): string | null {
   for (const property of Object.values(properties)) {
     if (property.type === type) {
@@ -292,45 +371,6 @@ function findByKeyIncludes(
 
     if (value.type === "rich_text") {
       return extractRichText(value.rich_text);
-    }
-  }
-
-  return null;
-}
-
-function findUrlByKeyIncludes(
-  properties: Record<string, NotionPropertyValue>,
-  candidates: string[]
-): string | null {
-  for (const [key, value] of Object.entries(properties)) {
-    const normalized = key.toLowerCase();
-    const match = candidates.some((candidate) => normalized.includes(candidate));
-
-    if (match && value.type === "url") {
-      return value.url ?? "";
-    }
-  }
-
-  return null;
-}
-
-function findUrlByExactKey(
-  properties: Record<string, NotionPropertyValue>,
-  exactKey: string
-): string | null {
-  const value = getPropertyByExactKey(properties, exactKey);
-
-  if (value?.type === "url") {
-    return value.url ?? "";
-  }
-
-  return null;
-}
-
-function findUrlByPropertyType(properties: Record<string, NotionPropertyValue>): string | null {
-  for (const value of Object.values(properties)) {
-    if (value.type === "url") {
-      return value.url ?? "";
     }
   }
 
