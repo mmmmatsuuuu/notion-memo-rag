@@ -9,7 +9,7 @@ export default function AdminPage() {
           className="text-3xl md:text-4xl"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          Sync Admin
+          同期
         </h1>
         <Link
           href="/"
