@@ -30,9 +30,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       >
         思考支援用メモ検索のMVP
       </h1>
-      <p className="mt-4 max-w-3xl text-[var(--ink-muted)]">
-        このアプリは「答えを作る」ためではなく、関連メモ断片への最短導線を作るためのRAGです。
-      </p>
       {authError ? (
         <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {authError === "forbidden_email"
@@ -44,14 +41,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       {isSignedIn ? <FixedLogoutButton /> : null}
 
       {isSignedIn ? (
-        <SearchClient defaultContextText="新しい機能を作るとき、調査と実装の切り替えで迷って進行が遅くなる。過去メモから、意思決定を速くする運用ルールを探したい。" />
-      ) : (
-        <section className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5">
-          <p className="text-sm text-[var(--ink-muted)]">
-            ログイン後、この画面に検索結果カードと下部ツールバーが表示されます。
-          </p>
-        </section>
-      )}
+        <SearchClient defaultContextText="" />
+      ) : null}
     </main>
   );
 }

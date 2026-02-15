@@ -108,10 +108,9 @@ function parseNdjsonChunk(chunk: string): SyncStreamEvent[] {
 }
 
 export default function AdminSyncClient() {
+  const previewLimit = 20;
   const [isSyncing, setIsSyncing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [forceFail, setForceFail] = useState(false);
-  const [previewCount, setPreviewCount] = useState(20);
   const [livePreview, setLivePreview] = useState<SyncPreviewItem[]>([]);
   const [progress, setProgress] = useState<SyncProgressState | null>(null);
   const [result, setResult] = useState<SyncResponse | null>(null);
@@ -138,8 +137,7 @@ export default function AdminSyncClient() {
         },
         body: JSON.stringify({
           limit,
-          forceFail,
-          previewCount
+          previewCount: previewLimit
         })
       });
 
@@ -203,7 +201,7 @@ export default function AdminSyncClient() {
             if (event.previewItem) {
               const previewItem = event.previewItem;
               setLivePreview((prev) => {
-                if (prev.length >= previewCount) {
+                if (prev.length >= previewLimit) {
                   return prev;
                 }
                 return [...prev, previewItem];
@@ -246,30 +244,6 @@ export default function AdminSyncClient() {
     <>
       <section className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm">
         <h2 className="text-lg font-semibold">手動同期</h2>
-        <p className="mt-1 text-sm text-[var(--ink-muted)]">
-          MVP仕様: バックグラウンドジョブなし。必要時に手動実行。
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--ink-muted)]">
-            <span>previewCount</span>
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={previewCount}
-              onChange={(event) => setPreviewCount(Number(event.target.value))}
-              className="w-20 rounded-lg border border-[var(--line)] bg-white px-2 py-1 text-sm"
-            />
-          </label>
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--ink-muted)]">
-            <input
-              type="checkbox"
-              checked={forceFail}
-              onChange={(event) => setForceFail(event.target.checked)}
-            />
-            force fail
-          </label>
-        </div>
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="button"
