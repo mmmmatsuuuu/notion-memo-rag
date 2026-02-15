@@ -102,7 +102,12 @@ export default function AdminSyncClient() {
         }
       }
 
-      const message = "error" in body ? body.error : "sync_failed";
+      const message =
+        "error" in body
+          ? typeof body.error === "string"
+            ? body.error
+            : body.error.message
+          : "sync_failed";
       throw new Error(message);
     } catch (error) {
       setResult(null);
