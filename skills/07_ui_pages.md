@@ -22,5 +22,5 @@
 ## /admin
 
 - Sync latest 50
-- Sync latest 200
+- Sync all
 - 同期結果表示（件数 + エラーID）

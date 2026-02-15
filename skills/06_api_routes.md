@@ -17,7 +17,7 @@
 ## /api/sync
 
 入力:
-- limit: 50 or 200
+- limit: 50 or all
 
 処理:
 1. 認証確認 + allowlist確認
