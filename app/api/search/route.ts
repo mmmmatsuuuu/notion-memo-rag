@@ -12,12 +12,22 @@ type SearchRequestBody = {
 type MatchMemoRow = {
   id?: string;
   memo_url?: string;
+  memo_title?: string;
   book_id?: string;
   book_title?: string;
   book_url?: string;
   tags?: string[] | string | null;
   note?: string | null;
   content_text?: string | null;
+};
+
+type MemoLookupRow = {
+  id: string;
+  memo_url?: string | null;
+  memo_title?: string | null;
+  book_id?: string | null;
+  book_title?: string | null;
+  book_url?: string | null;
 };
 
 const DEFAULT_TOP_K = 6;
@@ -38,7 +48,7 @@ function normalizeTags(tags: MatchMemoRow["tags"]): string[] {
 }
 
 function buildScholarQueries(row: MatchMemoRow): string[] {
-  const title = row.book_title ?? "";
+  const title = row.book_title ?? row.memo_title ?? "";
   const note = row.note ?? "";
   const content = (row.content_text ?? "").slice(0, 120).replace(/\s+/g, " ").trim();
 
@@ -49,6 +59,55 @@ function buildScholarQueries(row: MatchMemoRow): string[] {
   ].filter(Boolean);
 
   return [...new Set(candidates)].slice(0, 3);
+}
+
+function needsMetadataHydration(row: MatchMemoRow): boolean {
+  return !row.memo_title || !row.memo_url || !row.book_url;
+}
+
+async function hydrateRowsWithMemoFields(rows: MatchMemoRow[]): Promise<MatchMemoRow[]> {
+  const targetIds = rows
+    .filter((row) => needsMetadataHydration(row) && typeof row.id === "string" && row.id.length > 0)
+    .map((row) => row.id as string);
+
+  if (targetIds.length === 0) {
+    return rows;
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("memos")
+    .select("id,memo_url,memo_title,book_id,book_title,book_url")
+    .in("id", [...new Set(targetIds)]);
+
+  if (error) {
+    return rows;
+  }
+
+  const memoById = new Map<string, MemoLookupRow>();
+  for (const row of (data ?? []) as MemoLookupRow[]) {
+    memoById.set(row.id, row);
+  }
+
+  return rows.map((row) => {
+    if (!row.id) {
+      return row;
+    }
+
+    const memo = memoById.get(row.id);
+    if (!memo) {
+      return row;
+    }
+
+    return {
+      ...row,
+      memo_url: row.memo_url ?? memo.memo_url ?? undefined,
+      memo_title: row.memo_title ?? memo.memo_title ?? undefined,
+      book_id: row.book_id ?? memo.book_id ?? undefined,
+      book_title: row.book_title ?? memo.book_title ?? undefined,
+      book_url: row.book_url ?? memo.book_url ?? undefined
+    };
+  });
 }
 
 async function runMatchMemos(embedding: number[], topK: number): Promise<MatchMemoRow[]> {
@@ -103,14 +162,16 @@ export async function POST(request: Request) {
 
   try {
     const embedding = await createEmbedding(contextText);
-    const rows = await runMatchMemos(embedding, DEFAULT_TOP_K);
+    const rawRows = await runMatchMemos(embedding, DEFAULT_TOP_K);
+    const rows = await hydrateRowsWithMemoFields(rawRows);
 
     const results = rows.slice(0, DEFAULT_TOP_K).map((row, index) => ({
       id: row.id ?? `memo-${index + 1}`,
-      memoUrl: row.memo_url ?? "",
+      memoUrl: row.memo_url ?? null,
+      memoTitle: row.memo_title ?? null,
       bookId: row.book_id ?? row.id ?? `book-${index + 1}`,
-      bookTitle: row.book_title ?? "Untitled",
-      bookUrl: row.book_url ?? "",
+      bookTitle: row.book_title ?? null,
+      bookUrl: row.book_url ?? null,
       tags: normalizeTags(row.tags),
       note: row.note ?? "",
       preview: (row.content_text ?? "").slice(0, 400),

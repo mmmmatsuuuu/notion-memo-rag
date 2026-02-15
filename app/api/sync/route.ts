@@ -19,22 +19,23 @@ type SyncRequestBody = {
 type SyncLimit = MemoQueryLimit;
 
 type SyncPreviewItem = {
-  book_title: string;
+  memo_title: string;
   memo_url: string;
 };
 
 type SyncFailedItem = {
   id: string;
-  book_title: string;
+  memo_title: string;
   memo_url: string;
 };
 
 type MemoUpsertRecord = {
   id: string;
   memo_url: string;
-  book_id: string;
-  book_title: string;
-  book_url: string;
+  memo_title: string;
+  book_id: string | null;
+  book_title: string | null;
+  book_url: string | null;
   tags: string[];
   note: string;
   content_text: string;
@@ -115,11 +116,11 @@ function toVectorLiteral(embedding: number[]): string {
   return `[${embedding.join(",")}]`;
 }
 
-function normalizeContent(contentText: string, bookTitle: string, note: string): string {
+function normalizeContent(contentText: string, memoTitle: string, note: string): string {
   let normalized = contentText.trim();
 
   if (normalized.length < 20) {
-    normalized = [normalized, bookTitle, note].filter(Boolean).join("\n").trim();
+    normalized = [normalized, memoTitle, note].filter(Boolean).join("\n").trim();
   }
 
   if (normalized.length > MAX_CONTENT_LENGTH) {
@@ -290,16 +291,17 @@ export async function POST(request: Request) {
       let upsertAttemptedCount = 0;
 
       for (const page of targetPages) {
-        const metadata = getPageMetadata(page);
+        const metadata = await getPageMetadata(page);
 
         try {
           const flattenedContent = await flattenPageContent(page.id);
-          const contentText = normalizeContent(flattenedContent, metadata.bookTitle, metadata.note);
+          const contentText = normalizeContent(flattenedContent, metadata.memoTitle, metadata.note);
           const embedding = await createEmbedding(contentText);
 
           const record: MemoUpsertRecord = {
             id: page.id,
             memo_url: metadata.memoUrl,
+            memo_title: metadata.memoTitle,
             book_id: metadata.bookId,
             book_title: metadata.bookTitle,
             book_url: metadata.bookUrl,
@@ -323,7 +325,7 @@ export async function POST(request: Request) {
 
           if (syncedPreview.length < previewCount) {
             previewItem = {
-              book_title: record.book_title,
+              memo_title: record.memo_title,
               memo_url: record.memo_url
             };
             syncedPreview.push(previewItem);
@@ -339,7 +341,7 @@ export async function POST(request: Request) {
         } catch {
           failedIds.push({
             id: page.id,
-            book_title: metadata.bookTitle,
+            memo_title: metadata.memoTitle,
             memo_url: metadata.memoUrl
           });
 
