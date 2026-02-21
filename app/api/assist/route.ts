@@ -61,6 +61,30 @@ function tokenizeForReasoning(input: string): string[] {
     .filter((token) => token.length >= 2);
 }
 
+function tokenizeForScholar(input: string): string[] {
+  const stopWords = new Set([
+    "こと",
+    "ため",
+    "よう",
+    "これ",
+    "それ",
+    "この",
+    "その",
+    "and",
+    "the",
+    "for",
+    "with",
+    "from"
+  ]);
+
+  return input
+    .toLowerCase()
+    .split(/[^a-z0-9ぁ-んァ-ヶ一-龯]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && token.length <= 24)
+    .filter((token) => !stopWords.has(token));
+}
+
 function buildRelevanceReason(query: string, row: MatchMemoRow): string {
   const queryTokens = tokenizeForReasoning(query).slice(0, 12);
   const haystack = [row.memo_title, row.book_title, row.note, row.content_text].filter(Boolean).join(" ").toLowerCase();
@@ -77,20 +101,38 @@ function buildRelevanceReason(query: string, row: MatchMemoRow): string {
   return "本文の意味的近傍検索で上位に抽出されたため。";
 }
 
-function buildScholarQueries(row: MatchMemoRow): string[] {
-  const title = row.book_title ?? row.memo_title ?? "";
-  const note = row.note ?? "";
-  const content = (row.content_text ?? "").slice(0, 140).replace(/\s+/g, " ").trim();
+function buildScholarQueries(row: MatchMemoRow, query: string): string[] {
+  const titleTokens = tokenizeForScholar(row.book_title ?? row.memo_title ?? "").slice(0, 4);
+  const noteTokens = tokenizeForScholar(row.note ?? "").slice(0, 3);
+  const queryTokens = tokenizeForScholar(query).slice(0, 4);
+  const contentTokens = tokenizeForScholar((row.content_text ?? "").slice(0, 180)).slice(0, 3);
 
-  const candidates = [
-    title,
-    [title, note].filter(Boolean).join(" ").trim(),
-    [title, content].filter(Boolean).join(" ").trim(),
-    note,
-    content
-  ].filter(Boolean);
+  const baseTokens = [...new Set([...queryTokens, ...titleTokens, ...noteTokens, ...contentTokens])];
+  const primary = baseTokens.slice(0, 6);
+  const queries: string[] = [];
 
-  return [...new Set(candidates)].slice(0, 6);
+  for (let i = 0; i < primary.length; i += 1) {
+    if (i + 1 < primary.length) {
+      queries.push(`${primary[i]} ${primary[i + 1]}`);
+    }
+    if (i + 2 < primary.length) {
+      queries.push(`${primary[i]} ${primary[i + 1]} ${primary[i + 2]}`);
+    }
+  }
+
+  if (queries.length < 3) {
+    const fallbackPairs = [
+      [...queryTokens.slice(0, 2), ...titleTokens.slice(0, 1)].join(" ").trim(),
+      [...queryTokens.slice(0, 1), ...contentTokens.slice(0, 2)].join(" ").trim(),
+      [...titleTokens.slice(0, 2), ...noteTokens.slice(0, 1)].join(" ").trim()
+    ].filter(Boolean);
+    queries.push(...fallbackPairs);
+  }
+
+  return [...new Set(queries)]
+    .map((item) => item.trim().replace(/\s+/g, " "))
+    .filter((item) => item.split(" ").length >= 2)
+    .slice(0, 6);
 }
 
 function needsMetadataHydration(row: MatchMemoRow): boolean {
@@ -174,7 +216,7 @@ function buildEvidenceCards(rows: MatchMemoRow[], query: string): EvidenceCard[]
     note: row.note ?? "",
     preview: (row.content_text ?? "").slice(0, PREVIEW_CHAR_LIMIT),
     relevance_reason: buildRelevanceReason(query, row),
-    scholar_queries: buildScholarQueries(row)
+    scholar_queries: buildScholarQueries(row, query)
   }));
 }
 
