@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
+import ReactMarkdown from "react-markdown";
 import { useEffect, useRef, useState } from "react";
 
 type EvidenceCard = {
@@ -105,7 +108,18 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
         ) : null}
         {response ? (
           <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm">
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{response.response}</p>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeSanitize]}
+              components={{
+                h2: ({ children }) => <h2 className="mt-5 mb-2 text-base font-bold first:mt-0">{children}</h2>,
+                p: ({ children }) => <p className="mt-2 text-sm leading-relaxed">{children}</p>,
+                ul: ({ children }) => <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{children}</ul>,
+                li: ({ children }) => <li>{children}</li>
+              }}
+            >
+              {response.response}
+            </ReactMarkdown>
           </div>
         ) : null}
       </section>
