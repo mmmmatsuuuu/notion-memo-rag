@@ -171,7 +171,7 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
               <div className="mt-4 border-t border-[var(--line)] pt-3">
                 <p className="text-xs font-semibold text-[var(--ink-muted)]">一次資料クエリ候補</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {memo.scholar_queries.map((scholarQuery) => (
+                  {memo.scholar_queries.slice(0, 6).map((scholarQuery) => (
                     <a
                       key={`${memo.id}-${scholarQuery}`}
                       href={`https://scholar.google.com/scholar?q=${encodeURIComponent(scholarQuery)}`}
