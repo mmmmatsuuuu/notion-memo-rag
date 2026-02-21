@@ -46,6 +46,10 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
   const [response, setResponse] = useState<AssistSuccessResponse | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const evidenceCards = response?.evidence_cards ?? [];
+  const linkedMarkdown = (response?.response ?? "").replace(
+    /根拠カード\[(\d+)\]/g,
+    "[根拠カード[$1]](#evidence-card-$1)"
+  );
 
   async function handleSearch() {
     if (isSearching) {
@@ -115,10 +119,35 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
                 h2: ({ children }) => <h2 className="mt-5 mb-2 text-base font-bold first:mt-0">{children}</h2>,
                 p: ({ children }) => <p className="mt-2 text-sm leading-relaxed">{children}</p>,
                 ul: ({ children }) => <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{children}</ul>,
-                li: ({ children }) => <li>{children}</li>
+                li: ({ children }) => <li>{children}</li>,
+                a: ({ href, children }) => {
+                  if (!href?.startsWith("#evidence-card-")) {
+                    return (
+                      <a href={href} className="underline" target="_blank" rel="noreferrer">
+                        {children}
+                      </a>
+                    );
+                  }
+
+                  return (
+                    <a
+                      href={href}
+                      className="font-semibold text-[var(--accent)] underline"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        const target = document.querySelector(href);
+                        if (target instanceof HTMLElement) {
+                          target.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }
+                      }}
+                    >
+                      {children}
+                    </a>
+                  );
+                }
               }}
             >
-              {response.response}
+              {linkedMarkdown}
             </ReactMarkdown>
           </div>
         ) : null}
@@ -127,9 +156,10 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
       <section className="mt-8">
         <h2 className="text-lg font-semibold">根拠カード</h2>
         <div className="mt-3 grid gap-4">
-          {evidenceCards.map((memo) => (
+          {evidenceCards.map((memo, index) => (
             <article
               key={memo.id}
+              id={`evidence-card-${index + 1}`}
               className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm"
             >
               <div className="flex flex-wrap items-center gap-3 text-sm">
