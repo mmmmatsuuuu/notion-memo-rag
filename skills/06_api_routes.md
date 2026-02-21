@@ -1,16 +1,21 @@
 # API Routes Rules
 
-## /api/search
+## /api/assist
 
 入力:
-- contextText: string
-- topK?: number
+- query: string
 
 処理:
 1. 認証確認 + allowlist確認
 2. embedding生成
-3. match_memos呼び出し
-4. 結果返却
+3. match_memos呼び出し（`fetch_k=20`）
+4. 上位`answer_k=8`で生成
+5. 生成文 + 根拠カード返却
+
+返却:
+- response
+- evidence_cards[]
+- used_memo_ids[]
 
 ---
 

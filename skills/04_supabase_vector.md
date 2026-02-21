@@ -25,5 +25,6 @@
 ## 検索
 
 - match_memos RPC関数を使用
-- デフォルト topK=6
+- デフォルト `fetch_k=20`（取得）
+- デフォルト `answer_k=8`（生成利用）
 - HNSWインデックスを使用（MVP）

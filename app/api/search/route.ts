@@ -1,151 +1,36 @@
 import { NextResponse } from "next/server";
-import { createEmbedding } from "../../../lib/openai/embeddings";
-import { isAllowedEmail } from "../../../lib/auth/allowed-email";
-import { createAdminClient } from "../../../lib/supabase/admin";
-import { createClient } from "../../../lib/supabase/server";
+import { POST as assistPost } from "../assist/route";
 
 type SearchRequestBody = {
   contextText?: unknown;
   topK?: unknown;
 };
 
-type MatchMemoRow = {
-  id?: string;
-  memo_url?: string;
-  memo_title?: string;
-  book_id?: string;
-  book_title?: string;
-  book_url?: string;
-  tags?: string[] | string | null;
-  note?: string | null;
-  content_text?: string | null;
+type AssistSuccessResponse = {
+  ok: true;
+  mode: "live";
+  answer_k: number;
+  response: string;
+  evidence_cards: Array<{
+    id: string;
+    memo_url: string | null;
+    memo_title: string | null;
+    book_id: string | null;
+    book_title: string | null;
+    book_url: string | null;
+    tags: string[];
+    note: string;
+    preview: string;
+    scholar_queries: string[];
+  }>;
 };
 
-type MemoLookupRow = {
-  id: string;
-  memo_url?: string | null;
-  memo_title?: string | null;
-  book_id?: string | null;
-  book_title?: string | null;
-  book_url?: string | null;
+type AssistErrorResponse = {
+  ok: false;
+  error: string;
 };
-
-const DEFAULT_TOP_K = 6;
-
-function normalizeTags(tags: MatchMemoRow["tags"]): string[] {
-  if (Array.isArray(tags)) {
-    return tags.filter((tag): tag is string => typeof tag === "string" && tag.length > 0);
-  }
-
-  if (typeof tags === "string" && tags.length > 0) {
-    return tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-  }
-
-  return [];
-}
-
-function buildScholarQueries(row: MatchMemoRow): string[] {
-  const title = row.book_title ?? row.memo_title ?? "";
-  const note = row.note ?? "";
-  const content = (row.content_text ?? "").slice(0, 120).replace(/\s+/g, " ").trim();
-
-  const candidates = [
-    title,
-    [title, note].filter(Boolean).join(" ").trim(),
-    [title, content].filter(Boolean).join(" ").trim()
-  ].filter(Boolean);
-
-  return [...new Set(candidates)].slice(0, 3);
-}
-
-function needsMetadataHydration(row: MatchMemoRow): boolean {
-  return !row.memo_title || !row.memo_url || !row.book_url;
-}
-
-async function hydrateRowsWithMemoFields(rows: MatchMemoRow[]): Promise<MatchMemoRow[]> {
-  const targetIds = rows
-    .filter((row) => needsMetadataHydration(row) && typeof row.id === "string" && row.id.length > 0)
-    .map((row) => row.id as string);
-
-  if (targetIds.length === 0) {
-    return rows;
-  }
-
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("memos")
-    .select("id,memo_url,memo_title,book_id,book_title,book_url")
-    .in("id", [...new Set(targetIds)]);
-
-  if (error) {
-    return rows;
-  }
-
-  const memoById = new Map<string, MemoLookupRow>();
-  for (const row of (data ?? []) as MemoLookupRow[]) {
-    memoById.set(row.id, row);
-  }
-
-  return rows.map((row) => {
-    if (!row.id) {
-      return row;
-    }
-
-    const memo = memoById.get(row.id);
-    if (!memo) {
-      return row;
-    }
-
-    return {
-      ...row,
-      memo_url: row.memo_url ?? memo.memo_url ?? undefined,
-      memo_title: row.memo_title ?? memo.memo_title ?? undefined,
-      book_id: row.book_id ?? memo.book_id ?? undefined,
-      book_title: row.book_title ?? memo.book_title ?? undefined,
-      book_url: row.book_url ?? memo.book_url ?? undefined
-    };
-  });
-}
-
-async function runMatchMemos(embedding: number[], topK: number): Promise<MatchMemoRow[]> {
-  const supabase = createAdminClient();
-
-  const rpcParamsList: Array<Record<string, unknown>> = [
-    { query_embedding: embedding, match_count: topK },
-    { query_embedding: embedding, top_k: topK },
-    { p_query_embedding: embedding, p_match_count: topK },
-    { embedding, match_count: topK }
-  ];
-
-  for (const params of rpcParamsList) {
-    const { data, error } = await supabase.rpc("match_memos", params);
-
-    if (!error) {
-      return (data ?? []) as MatchMemoRow[];
-    }
-  }
-
-  throw new Error("match_memos_rpc_failed");
-}
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: userError
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  }
-
-  if (!isAllowedEmail(user.email)) {
-    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-  }
-
   let body: SearchRequestBody;
 
   try {
@@ -159,36 +44,41 @@ export async function POST(request: Request) {
   }
 
   const contextText = body.contextText.trim();
+  const assistRequest = new Request(request.url.replace("/api/search", "/api/assist"), {
+    method: "POST",
+    headers: request.headers,
+    body: JSON.stringify({
+      query: contextText
+    })
+  });
 
-  try {
-    const embedding = await createEmbedding(contextText);
-    const rawRows = await runMatchMemos(embedding, DEFAULT_TOP_K);
-    const rows = await hydrateRowsWithMemoFields(rawRows);
+  const assistResponse = await assistPost(assistRequest);
+  const assistBody = (await assistResponse.json()) as AssistSuccessResponse | AssistErrorResponse;
 
-    const results = rows.slice(0, DEFAULT_TOP_K).map((row, index) => ({
-      id: row.id ?? `memo-${index + 1}`,
-      memoUrl: row.memo_url ?? null,
-      memoTitle: row.memo_title ?? null,
-      bookId: row.book_id ?? row.id ?? `book-${index + 1}`,
-      bookTitle: row.book_title ?? null,
-      bookUrl: row.book_url ?? null,
-      tags: normalizeTags(row.tags),
-      note: row.note ?? "",
-      preview: (row.content_text ?? "").slice(0, 400),
-      scholarQueries: buildScholarQueries(row)
-    }));
-
-    return NextResponse.json({
-      ok: true,
-      mode: "live",
-      topK: DEFAULT_TOP_K,
-      requestedTopK: typeof body.topK === "number" ? body.topK : undefined,
-      resultCount: results.length,
-      contextTextLength: contextText.length,
-      results
+  if (!assistResponse.ok || !assistBody.ok) {
+    return NextResponse.json({ ok: false, error: assistBody.ok ? "search_failed" : assistBody.error }, {
+      status: assistResponse.status
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "search_failed";
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
+
+  return NextResponse.json({
+    ok: true,
+    mode: assistBody.mode,
+    topK: assistBody.answer_k,
+    requestedTopK: typeof body.topK === "number" ? body.topK : undefined,
+    resultCount: assistBody.evidence_cards.length,
+    contextTextLength: contextText.length,
+    results: assistBody.evidence_cards.map((card) => ({
+      id: card.id,
+      memoUrl: card.memo_url,
+      memoTitle: card.memo_title,
+      bookId: card.book_id ?? card.id,
+      bookTitle: card.book_title,
+      bookUrl: card.book_url,
+      tags: card.tags,
+      note: card.note,
+      preview: card.preview,
+      scholarQueries: card.scholar_queries
+    }))
+  });
 }

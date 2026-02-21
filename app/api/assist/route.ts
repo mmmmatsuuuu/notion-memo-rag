@@ -1,0 +1,303 @@
+import { NextResponse } from "next/server";
+import { isAllowedEmail } from "../../../lib/auth/allowed-email";
+import {
+  ANSWER_K,
+  type AssistErrorResponse,
+  FETCH_K,
+  type EvidenceCard,
+  PREVIEW_CHAR_LIMIT,
+  parseQuery
+} from "../../../lib/assist/contract";
+import { createAssistNarrative } from "../../../lib/openai/assist";
+import { createEmbedding } from "../../../lib/openai/embeddings";
+import { createAdminClient } from "../../../lib/supabase/admin";
+import { createClient } from "../../../lib/supabase/server";
+
+type AssistRequestBody = {
+  query?: unknown;
+};
+
+type MatchMemoRow = {
+  id?: string;
+  memo_url?: string;
+  memo_title?: string;
+  book_id?: string;
+  book_title?: string;
+  book_url?: string;
+  tags?: string[] | string | null;
+  note?: string | null;
+  content_text?: string | null;
+};
+
+type MemoLookupRow = {
+  id: string;
+  memo_url?: string | null;
+  memo_title?: string | null;
+  book_id?: string | null;
+  book_title?: string | null;
+  book_url?: string | null;
+};
+
+function normalizeTags(tags: MatchMemoRow["tags"]): string[] {
+  if (Array.isArray(tags)) {
+    return tags.filter((tag): tag is string => typeof tag === "string" && tag.length > 0);
+  }
+
+  if (typeof tags === "string" && tags.length > 0) {
+    return tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function tokenizeForReasoning(input: string): string[] {
+  return input
+    .toLowerCase()
+    .split(/[^a-z0-9ぁ-んァ-ヶ一-龯]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+function tokenizeForScholar(input: string): string[] {
+  const stopWords = new Set([
+    "こと",
+    "ため",
+    "よう",
+    "これ",
+    "それ",
+    "この",
+    "その",
+    "and",
+    "the",
+    "for",
+    "with",
+    "from"
+  ]);
+
+  return input
+    .toLowerCase()
+    .split(/[^a-z0-9ぁ-んァ-ヶ一-龯]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && token.length <= 24)
+    .filter((token) => !stopWords.has(token));
+}
+
+function buildRelevanceReason(query: string, row: MatchMemoRow): string {
+  const queryTokens = tokenizeForReasoning(query).slice(0, 12);
+  const haystack = [row.memo_title, row.book_title, row.note, row.content_text].filter(Boolean).join(" ").toLowerCase();
+  const matched = queryTokens.filter((token) => haystack.includes(token)).slice(0, 3);
+
+  if (matched.length > 0) {
+    return `問いの主要語（${matched.join(" / ")}）に対応する記述が含まれているため。`;
+  }
+
+  if (row.note && row.note.trim().length > 0) {
+    return "メモ注記の論点が問いの方向性と近いため。";
+  }
+
+  return "本文の意味的近傍検索で上位に抽出されたため。";
+}
+
+function buildScholarQueries(row: MatchMemoRow, query: string): string[] {
+  const titleTokens = tokenizeForScholar(row.book_title ?? row.memo_title ?? "").slice(0, 4);
+  const noteTokens = tokenizeForScholar(row.note ?? "").slice(0, 3);
+  const queryTokens = tokenizeForScholar(query).slice(0, 4);
+  const contentTokens = tokenizeForScholar((row.content_text ?? "").slice(0, 180)).slice(0, 3);
+
+  const baseTokens = [...new Set([...queryTokens, ...titleTokens, ...noteTokens, ...contentTokens])];
+  const primary = baseTokens.slice(0, 6);
+  const queries: string[] = [];
+
+  for (let i = 0; i < primary.length; i += 1) {
+    if (i + 1 < primary.length) {
+      queries.push(`${primary[i]} ${primary[i + 1]}`);
+    }
+    if (i + 2 < primary.length) {
+      queries.push(`${primary[i]} ${primary[i + 1]} ${primary[i + 2]}`);
+    }
+  }
+
+  if (queries.length < 3) {
+    const fallbackPairs = [
+      [...queryTokens.slice(0, 2), ...titleTokens.slice(0, 1)].join(" ").trim(),
+      [...queryTokens.slice(0, 1), ...contentTokens.slice(0, 2)].join(" ").trim(),
+      [...titleTokens.slice(0, 2), ...noteTokens.slice(0, 1)].join(" ").trim()
+    ].filter(Boolean);
+    queries.push(...fallbackPairs);
+  }
+
+  return [...new Set(queries)]
+    .map((item) => item.trim().replace(/\s+/g, " "))
+    .filter((item) => item.split(" ").length >= 2)
+    .slice(0, 6);
+}
+
+function needsMetadataHydration(row: MatchMemoRow): boolean {
+  return !row.memo_title || !row.memo_url || !row.book_url;
+}
+
+async function hydrateRowsWithMemoFields(rows: MatchMemoRow[]): Promise<MatchMemoRow[]> {
+  const targetIds = rows
+    .filter((row) => needsMetadataHydration(row) && typeof row.id === "string" && row.id.length > 0)
+    .map((row) => row.id as string);
+
+  if (targetIds.length === 0) {
+    return rows;
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("memos")
+    .select("id,memo_url,memo_title,book_id,book_title,book_url")
+    .in("id", [...new Set(targetIds)]);
+
+  if (error) {
+    return rows;
+  }
+
+  const memoById = new Map<string, MemoLookupRow>();
+  for (const row of (data ?? []) as MemoLookupRow[]) {
+    memoById.set(row.id, row);
+  }
+
+  return rows.map((row) => {
+    if (!row.id) {
+      return row;
+    }
+
+    const memo = memoById.get(row.id);
+    if (!memo) {
+      return row;
+    }
+
+    return {
+      ...row,
+      memo_url: row.memo_url ?? memo.memo_url ?? undefined,
+      memo_title: row.memo_title ?? memo.memo_title ?? undefined,
+      book_id: row.book_id ?? memo.book_id ?? undefined,
+      book_title: row.book_title ?? memo.book_title ?? undefined,
+      book_url: row.book_url ?? memo.book_url ?? undefined
+    };
+  });
+}
+
+async function runMatchMemos(embedding: number[], fetchK: number): Promise<MatchMemoRow[]> {
+  const supabase = createAdminClient();
+
+  const rpcParamsList: Array<Record<string, unknown>> = [
+    { query_embedding: embedding, match_count: fetchK },
+    { query_embedding: embedding, top_k: fetchK },
+    { p_query_embedding: embedding, p_match_count: fetchK },
+    { embedding, match_count: fetchK }
+  ];
+
+  for (const params of rpcParamsList) {
+    const { data, error } = await supabase.rpc("match_memos", params);
+    if (!error) {
+      return (data ?? []) as MatchMemoRow[];
+    }
+  }
+
+  throw new Error("match_memos_rpc_failed");
+}
+
+function buildEvidenceCards(rows: MatchMemoRow[], query: string): EvidenceCard[] {
+  return rows.slice(0, ANSWER_K).map((row, index) => ({
+    id: row.id ?? `memo-${index + 1}`,
+    memo_url: row.memo_url ?? null,
+    memo_title: row.memo_title ?? null,
+    book_id: row.book_id ?? row.id ?? null,
+    book_title: row.book_title ?? null,
+    book_url: row.book_url ?? null,
+    tags: normalizeTags(row.tags),
+    note: row.note ?? "",
+    preview: (row.content_text ?? "").slice(0, PREVIEW_CHAR_LIMIT),
+    relevance_reason: buildRelevanceReason(query, row),
+    scholar_queries: buildScholarQueries(row, query)
+  }));
+}
+
+function buildAssistResponse(query: string, evidenceCards: EvidenceCard[]): string {
+  if (evidenceCards.length === 0) {
+    return [
+      `問い：${query}`,
+      "回答",
+      "関連する根拠メモが見つかりませんでした。問いを具体化して再検索してください。"
+    ].join("\n");
+  }
+
+  const summary = evidenceCards
+    .slice(0, 3)
+    .map((card, index) => {
+      const title = card.book_title ?? card.memo_title ?? `メモ${index + 1}`;
+      return `${title}の記述から、${card.relevance_reason}(根拠カード[${index + 1}])`;
+    })
+    .join(" ");
+
+  return [
+    `問い：${query}`,
+    "回答",
+    summary,
+    "次のアクション: 根拠カードの原典リンクを開き、仮説を1つ検証してください。"
+  ].join("\n");
+}
+
+async function createResponseText(query: string, evidenceCards: EvidenceCard[]): Promise<string> {
+  try {
+    return await createAssistNarrative(query, evidenceCards);
+  } catch {
+    return buildAssistResponse(query, evidenceCards);
+  }
+}
+
+export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: userError
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return NextResponse.json<AssistErrorResponse>({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  if (!isAllowedEmail(user.email)) {
+    return NextResponse.json<AssistErrorResponse>({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+
+  let body: AssistRequestBody;
+  try {
+    body = (await request.json()) as AssistRequestBody;
+  } catch {
+    return NextResponse.json<AssistErrorResponse>({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+
+  const query = parseQuery(body.query);
+  if (!query) {
+    return NextResponse.json<AssistErrorResponse>({ ok: false, error: "query_required" }, { status: 400 });
+  }
+
+  try {
+    const embedding = await createEmbedding(query);
+    const rawRows = await runMatchMemos(embedding, FETCH_K);
+    const hydratedRows = await hydrateRowsWithMemoFields(rawRows);
+    const evidenceCards = buildEvidenceCards(hydratedRows, query);
+    const responseText = await createResponseText(query, evidenceCards);
+
+    return NextResponse.json({
+      ok: true,
+      mode: "live",
+      fetch_k: FETCH_K,
+      answer_k: ANSWER_K,
+      response: responseText,
+      evidence_cards: evidenceCards,
+      used_memo_ids: evidenceCards.map((card) => card.id)
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "assist_failed";
+    return NextResponse.json<AssistErrorResponse>({ ok: false, error: message }, { status: 500 });
+  }
+}
