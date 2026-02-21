@@ -38,6 +38,7 @@ Notionに蓄積した読書メモを「意味」で検索し、
 - Supabase（Postgres + pgvector）
 - Supabase Auth（Google OAuth）
 - OpenAI Embeddings（text-embedding-3-small）
+- OpenAI Chat Completions（gpt-5-mini, 生成文）
 - Notion API（メモDB + ブロック取得）
 - Vercel（ホスティング）
 
@@ -58,12 +59,13 @@ Notionに蓄積した読書メモを「意味」で検索し、
 
 ---
 
-### 検索
+### 検索 + 生成（`/api/assist`）
 
 1. ユーザー入力 `query` をembedding
 2. ベクトル近傍検索（`fetch_k=20`）
 3. 上位`answer_k=8`件を生成コンテキストに採用
-4. 生成文と根拠カードを表示（カードは先頭400文字プレビュー）
+4. 生成文は問いに対する自然言語回答を作成（根拠カード参照付き）
+5. 根拠カードを表示（カードは先頭400文字プレビュー）
 
 API返却の最小形：
 - `response`（整理された生成文）
@@ -76,7 +78,7 @@ API返却の最小形：
 
 各メモカード内で：
 
-- 研究検索用クエリを複数生成
+- 研究検索用クエリを3〜6件生成（単語組み合わせ）
 - Google Scholar検索リンクを提示
 - Notion原文へのリンクを表示
 
@@ -98,6 +100,7 @@ Webスクレイピングは行いません。
 ### 必要な環境変数
 
 OPENAI_API_KEY=
+OPENAI_ASSIST_MODEL=gpt-5-mini
 NOTION_TOKEN=
 NOTION_MEMO_DB_ID=
 SUPABASE_URL=

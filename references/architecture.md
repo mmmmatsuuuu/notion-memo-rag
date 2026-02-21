@@ -53,6 +53,7 @@ MVPでは分割（chunking）は行わない。
 - Supabase (Postgres + pgvector)
 - Supabase Auth (Google)
 - OpenAI Embedding API (text-embedding-3-small)
+- OpenAI Chat Completions API (gpt-5-mini)
 - Notion API
 - Vercel
 
@@ -75,21 +76,22 @@ MVPでは分割（chunking）は行わない。
 
 ---
 
-### 4.2 検索 + 生成
+### 4.2 検索 + 生成（`/api/assist`）
 
 1. ログイン後、`/` 画面の下部固定ツールバーで `query` を入力
 2. embedding生成
 3. Supabaseで近傍検索
 4. `fetch_k=20` を取得
 5. 上位 `answer_k=8` を生成コンテキストに採用
-6. 生成文と根拠カードを表示（`used_memo_ids`を返す）
-7. ツールバーから `/admin` へ遷移可能
+6. 生成文は問いに対して自然言語で回答し、根拠カード参照を含める
+7. 根拠カードを表示（`used_memo_ids`を返す）
+8. ツールバーから `/admin` へ遷移可能
 
 ---
 
 ### 4.3 一次資料導線
 
-- クエリ候補生成（3〜6件）
+- クエリ候補生成（3〜6件、単語組み合わせ）
 - 各結果カード内にGoogle Scholarリンク表示
 - Webスクレイピングは行わない
 
