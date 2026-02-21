@@ -8,6 +8,7 @@ import {
   PREVIEW_CHAR_LIMIT,
   parseQuery
 } from "../../../lib/assist/contract";
+import { createAssistNarrative } from "../../../lib/openai/assist";
 import { createEmbedding } from "../../../lib/openai/embeddings";
 import { createAdminClient } from "../../../lib/supabase/admin";
 import { createClient } from "../../../lib/supabase/server";
@@ -179,17 +180,35 @@ function buildEvidenceCards(rows: MatchMemoRow[], query: string): EvidenceCard[]
 
 function buildAssistResponse(query: string, evidenceCards: EvidenceCard[]): string {
   if (evidenceCards.length === 0) {
-    return `「${query}」に関する根拠メモが見つかりませんでした。問いを具体化して再検索してください。`;
+    return [
+      `問い：${query}`,
+      "回答",
+      "関連する根拠メモが見つかりませんでした。問いを具体化して再検索してください。"
+    ].join("\n");
   }
 
-  const lines = evidenceCards.slice(0, 3).map((card, index) => {
-    const title = card.book_title ?? card.memo_title ?? `根拠メモ${index + 1}`;
-    return `${index + 1}. ${title} - ${card.relevance_reason}`;
-  });
+  const summary = evidenceCards
+    .slice(0, 3)
+    .map((card, index) => {
+      const title = card.book_title ?? card.memo_title ?? `メモ${index + 1}`;
+      return `${title}の記述から、${card.relevance_reason}(根拠カード[${index + 1}])`;
+    })
+    .join(" ");
 
-  return [`問い: ${query}`, "関連メモの要点:", ...lines, "上記の根拠カードから原典に遡って検討してください。"].join(
-    "\n"
-  );
+  return [
+    `問い：${query}`,
+    "回答",
+    summary,
+    "次のアクション: 根拠カードの原典リンクを開き、仮説を1つ検証してください。"
+  ].join("\n");
+}
+
+async function createResponseText(query: string, evidenceCards: EvidenceCard[]): Promise<string> {
+  try {
+    return await createAssistNarrative(query, evidenceCards);
+  } catch {
+    return buildAssistResponse(query, evidenceCards);
+  }
 }
 
 export async function POST(request: Request) {
@@ -224,13 +243,14 @@ export async function POST(request: Request) {
     const rawRows = await runMatchMemos(embedding, FETCH_K);
     const hydratedRows = await hydrateRowsWithMemoFields(rawRows);
     const evidenceCards = buildEvidenceCards(hydratedRows, query);
+    const responseText = await createResponseText(query, evidenceCards);
 
     return NextResponse.json({
       ok: true,
       mode: "live",
       fetch_k: FETCH_K,
       answer_k: ANSWER_K,
-      response: buildAssistResponse(query, evidenceCards),
+      response: responseText,
       evidence_cards: evidenceCards,
       used_memo_ids: evidenceCards.map((card) => card.id)
     });
