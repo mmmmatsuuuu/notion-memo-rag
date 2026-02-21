@@ -1,32 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-type SearchResultItem = {
+type EvidenceCard = {
   id: string;
-  memoUrl: string | null;
-  memoTitle: string | null;
-  bookId: string;
-  bookTitle: string | null;
-  bookUrl: string | null;
+  memo_url: string | null;
+  memo_title: string | null;
+  book_id: string | null;
+  book_title: string | null;
+  book_url: string | null;
   tags: string[];
   note: string;
   preview: string;
-  scholarQueries: string[];
+  relevance_reason: string;
+  scholar_queries: string[];
 };
 
-type SearchSuccessResponse = {
+type AssistSuccessResponse = {
   ok: true;
-  mode: string;
-  topK: number;
-  requestedTopK?: number;
-  resultCount: number;
-  contextTextLength: number;
-  results: SearchResultItem[];
+  mode: "live";
+  fetch_k: number;
+  answer_k: number;
+  response: string;
+  evidence_cards: EvidenceCard[];
+  used_memo_ids: string[];
 };
 
-type SearchErrorResponse = {
+type AssistErrorResponse = {
   ok: false;
   error: string;
 };
@@ -36,13 +37,12 @@ type SearchClientProps = {
 };
 
 export default function SearchClient({ defaultContextText }: SearchClientProps) {
-  const [contextText, setContextText] = useState(defaultContextText);
+  const [query, setQuery] = useState(defaultContextText);
   const [isSearching, setIsSearching] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [response, setResponse] = useState<SearchSuccessResponse | null>(null);
+  const [response, setResponse] = useState<AssistSuccessResponse | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const results = useMemo(() => response?.results ?? [], [response]);
+  const evidenceCards = response?.evidence_cards ?? [];
 
   async function handleSearch() {
     if (isSearching) {
@@ -53,17 +53,17 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
     setErrorMessage(null);
 
     try {
-      const res = await fetch("/api/search", {
+      const res = await fetch("/api/assist", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          contextText
+          query
         })
       });
 
-      const body = (await res.json()) as SearchSuccessResponse | SearchErrorResponse;
+      const body = (await res.json()) as AssistSuccessResponse | AssistErrorResponse;
 
       if (!res.ok || !body.ok) {
         const message = body.ok ? "search_failed" : body.error;
@@ -87,51 +87,62 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
 
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [contextText]);
+  }, [query]);
 
   return (
     <>
       <section className="mt-8">
-        <h2 className="text-lg font-semibold">検索結果</h2>
+        <h2 className="text-lg font-semibold">生成結果</h2>
         {response ? (
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">{response.resultCount}件</p>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">
+            根拠メモ {response.evidence_cards.length}件（fetch_k={response.fetch_k}, answer_k={response.answer_k}）
+          </p>
         ) : null}
         {errorMessage ? (
           <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             検索エラー: {errorMessage}
           </p>
         ) : null}
+        {response ? (
+          <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm">
+            <p className="text-sm leading-relaxed whitespace-pre-wrap">{response.response}</p>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">根拠カード</h2>
         <div className="mt-3 grid gap-4">
-          {results.map((memo) => (
+          {evidenceCards.map((memo) => (
             <article
               key={memo.id}
               className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm"
             >
               <div className="flex flex-wrap items-center gap-3 text-sm">
-                {memo.memoUrl ? (
+                {memo.memo_url ? (
                   <a
-                    href={memo.memoUrl}
+                    href={memo.memo_url}
                     target="_blank"
                     rel="noreferrer"
                     className="font-semibold text-[var(--accent)] underline decoration-1 underline-offset-3"
                   >
-                    {memo.memoTitle ?? "（メモタイトルなし）"}
+                    {memo.memo_title ?? "（メモタイトルなし）"}
                   </a>
                 ) : (
                   <span className="font-semibold text-[var(--accent)]">
-                    {memo.memoTitle ?? "（メモタイトルなし）"}
+                    {memo.memo_title ?? "（メモタイトルなし）"}
                   </span>
                 )}
-                {memo.bookUrl ? (
+                {memo.book_url ? (
                   <a
-                    href={memo.bookUrl}
+                    href={memo.book_url}
                     target="_blank"
                     rel="noreferrer"
                     className="text-[var(--ink-muted)] underline"
                   >
-                    {memo.bookTitle ?? "（引用コンテンツなし）"}
+                    {memo.book_title ?? "（引用コンテンツなし）"}
                   </a>
-                ) : <span className="text-[var(--ink-muted)]">{memo.bookTitle ?? "（引用コンテンツなし）"}</span>}
+                ) : <span className="text-[var(--ink-muted)]">{memo.book_title ?? "（引用コンテンツなし）"}</span>}
                 <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs">
                   {memo.note}
                 </span>
@@ -152,18 +163,23 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
                 {memo.preview.slice(0, 400)}
               </p>
 
+              <div className="mt-4 rounded-xl border border-[var(--line)] bg-white p-3">
+                <p className="text-xs font-semibold text-[var(--ink-muted)]">このカードを根拠に使った理由</p>
+                <p className="mt-1 text-sm leading-relaxed">{memo.relevance_reason}</p>
+              </div>
+
               <div className="mt-4 border-t border-[var(--line)] pt-3">
                 <p className="text-xs font-semibold text-[var(--ink-muted)]">一次資料クエリ候補</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {memo.scholarQueries.map((query) => (
+                  {memo.scholar_queries.map((scholarQuery) => (
                     <a
-                      key={`${memo.id}-${query}`}
-                      href={`https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`}
+                      key={`${memo.id}-${scholarQuery}`}
+                      href={`https://scholar.google.com/scholar?q=${encodeURIComponent(scholarQuery)}`}
                       target="_blank"
                       rel="noreferrer"
                       className="rounded-full border border-[var(--line)] bg-white px-3 py-1 text-xs hover:border-[var(--accent)] hover:text-[var(--accent)]"
                     >
-                      {query}
+                      {scholarQuery}
                     </a>
                   ))}
                 </div>
@@ -184,8 +200,8 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
               ref={textareaRef}
               className="mt-1 min-h-11 w-full rounded-xl border border-[var(--line)] bg-white p-3 text-sm leading-relaxed outline-none ring-[var(--accent)] focus:ring-1"
               placeholder="今考えている課題、仮説、問いを入力..."
-              value={contextText}
-              onChange={(event) => setContextText(event.target.value)}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                   event.preventDefault();
