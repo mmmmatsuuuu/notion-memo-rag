@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
+import ReactMarkdown from "react-markdown";
 import { useEffect, useRef, useState } from "react";
 
 type EvidenceCard = {
@@ -36,6 +39,49 @@ type SearchClientProps = {
   defaultContextText: string;
 };
 
+type ResponseSections = {
+  question: string;
+  answer: string;
+  nextAction: string;
+};
+
+function parseResponseSections(markdown: string): ResponseSections {
+  const sections: ResponseSections = {
+    question: "",
+    answer: "",
+    nextAction: ""
+  };
+  let current: keyof ResponseSections | null = null;
+
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trimEnd();
+
+    if (/^##\s*問い/.test(line)) {
+      current = "question";
+      continue;
+    }
+    if (/^##\s*回答/.test(line)) {
+      current = "answer";
+      continue;
+    }
+    if (/^##\s*次のアクション/.test(line)) {
+      current = "nextAction";
+      continue;
+    }
+    if (!current) {
+      continue;
+    }
+
+    sections[current] = [sections[current], line].filter(Boolean).join("\n");
+  }
+
+  return {
+    question: sections.question.trim(),
+    answer: sections.answer.trim(),
+    nextAction: sections.nextAction.trim()
+  };
+}
+
 export default function SearchClient({ defaultContextText }: SearchClientProps) {
   const [query, setQuery] = useState(defaultContextText);
   const [isSearching, setIsSearching] = useState(false);
@@ -43,6 +89,11 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
   const [response, setResponse] = useState<AssistSuccessResponse | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const evidenceCards = response?.evidence_cards ?? [];
+  const linkedMarkdown = (response?.response ?? "").replace(
+    /根拠カード\[(\d+)\]/g,
+    "[根拠カード[$1]](#evidence-card-$1)"
+  );
+  const responseSections = parseResponseSections(linkedMarkdown);
 
   async function handleSearch() {
     if (isSearching) {
@@ -104,8 +155,68 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
           </p>
         ) : null}
         {response ? (
-          <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm">
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{response.response}</p>
+          <div className="mt-3 grid gap-3">
+            <section className="rounded-2xl border border-[var(--line)] bg-[#f8f5ea] p-5 shadow-sm">
+              <p className="text-xs font-semibold tracking-[0.08em] text-[var(--ink-muted)] uppercase">問い</p>
+              <p className="mt-2 text-sm leading-relaxed">{responseSections.question || query}</p>
+            </section>
+
+            <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm">
+              <p className="text-xs font-semibold tracking-[0.08em] text-[var(--ink-muted)] uppercase">回答</p>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeSanitize]}
+                components={{
+                  p: ({ children }) => <p className="mt-2 text-sm leading-relaxed">{children}</p>,
+                  ul: ({ children }) => <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{children}</ul>,
+                  li: ({ children }) => <li>{children}</li>,
+                  a: ({ href, children }) => {
+                    if (!href?.startsWith("#evidence-card-")) {
+                      return (
+                        <a href={href} className="underline" target="_blank" rel="noreferrer">
+                          {children}
+                        </a>
+                      );
+                    }
+
+                    return (
+                      <a
+                        href={href}
+                        className="font-semibold text-[var(--accent)] underline"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          const target = document.querySelector(href);
+                          if (target instanceof HTMLElement) {
+                            target.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }
+                        }}
+                      >
+                        {children}
+                      </a>
+                    );
+                  }
+                }}
+              >
+                {responseSections.answer || linkedMarkdown}
+              </ReactMarkdown>
+            </section>
+
+            <section className="rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] p-5 shadow-sm">
+              <p className="text-xs font-semibold tracking-[0.08em] text-[var(--ink-muted)] uppercase">
+                次のアクション
+              </p>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeSanitize]}
+                components={{
+                  p: ({ children }) => <p className="mt-2 text-sm leading-relaxed">{children}</p>,
+                  ul: ({ children }) => <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{children}</ul>,
+                  li: ({ children }) => <li>{children}</li>
+                }}
+              >
+                {responseSections.nextAction || "- 根拠カードを確認して次の検証を決める。"}
+              </ReactMarkdown>
+            </section>
           </div>
         ) : null}
       </section>
@@ -113,9 +224,10 @@ export default function SearchClient({ defaultContextText }: SearchClientProps) 
       <section className="mt-8">
         <h2 className="text-lg font-semibold">根拠カード</h2>
         <div className="mt-3 grid gap-4">
-          {evidenceCards.map((memo) => (
+          {evidenceCards.map((memo, index) => (
             <article
               key={memo.id}
+              id={`evidence-card-${index + 1}`}
               className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 shadow-sm"
             >
               <div className="flex flex-wrap items-center gap-3 text-sm">
