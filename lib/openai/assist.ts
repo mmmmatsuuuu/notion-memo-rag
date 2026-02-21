@@ -32,7 +32,7 @@ export async function createAssistNarrative(query: string, evidenceCards: Eviden
   }
 
   if (evidenceCards.length === 0) {
-    return `「${query}」に関する根拠メモが見つかりませんでした。問いを具体化して再検索してください。`;
+    return ["## 問い", query, "", "## 回答", "関連する根拠メモが見つかりませんでした。", "", "## 次のアクション", "- 問いを具体化して再検索してください。"].join("\n");
   }
 
   const evidenceBlock = buildEvidenceBlock(evidenceCards);
@@ -43,17 +43,16 @@ export async function createAssistNarrative(query: string, evidenceCards: Eviden
   const prompt = [
     "あなたは読書メモRAGの思考支援アシスタントです。",
     "以下の根拠をもとに、問いに対する短い思考支援文を日本語で作成してください。",
-    "# 根拠",
-    evidenceCards,
-    "#回答方針:",
+    "回答方針:",
     "- 問いに自然な日本語で答える。",
     "- 根拠に使ったカードを文中に 根拠カード[1] の形式で明示する。",
     "- 推測は断定せず、検討ポイントとして述べる。",
-    "- 最後に1行で次のアクションを提案する。",
-    "- 出力は次の形式を厳守する:",
-    "  問い：{問いをそのまま再掲}",
-    "  回答",
-    "  {自然文本文。本文中に根拠カード参照を入れる}",
+    "- 出力はMarkdownで、次の見出しを厳守する:",
+    "  ## 問い",
+    "  ## 回答",
+    "  ## 次のアクション",
+    "- 「## 回答」の本文に根拠カード参照を含める。",
+    "- 「## 次のアクション」は箇条書き1〜3項目で書く。",
     "",
     `問い: ${query}`,
     `使用できる根拠カード参照: ${evidenceRefs}`,

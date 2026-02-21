@@ -223,9 +223,14 @@ function buildEvidenceCards(rows: MatchMemoRow[], query: string): EvidenceCard[]
 function buildAssistResponse(query: string, evidenceCards: EvidenceCard[]): string {
   if (evidenceCards.length === 0) {
     return [
-      `問い：${query}`,
-      "回答",
-      "関連する根拠メモが見つかりませんでした。問いを具体化して再検索してください。"
+      "## 問い",
+      query,
+      "",
+      "## 回答",
+      "関連する根拠メモが見つかりませんでした。問いを具体化して再検索してください。",
+      "",
+      "## 次のアクション",
+      "- 問いを具体化して再検索する。"
     ].join("\n");
   }
 
@@ -233,15 +238,19 @@ function buildAssistResponse(query: string, evidenceCards: EvidenceCard[]): stri
     .slice(0, 3)
     .map((card, index) => {
       const title = card.book_title ?? card.memo_title ?? `メモ${index + 1}`;
-      return `${title}の記述から、${card.relevance_reason}(根拠カード[${index + 1}])`;
+      return `- ${title}の記述から、${card.relevance_reason} (根拠カード[${index + 1}])`;
     })
-    .join(" ");
+    .join("\n");
 
   return [
-    `問い：${query}`,
-    "回答",
+    "## 問い",
+    query,
+    "",
+    "## 回答",
     summary,
-    "次のアクション: 根拠カードの原典リンクを開き、仮説を1つ検証してください。"
+    "",
+    "## 次のアクション",
+    "- 根拠カードの原典リンクを開き、仮説を1つ検証する。"
   ].join("\n");
 }
 
